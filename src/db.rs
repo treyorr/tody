@@ -288,7 +288,6 @@ impl Database {
         tx.commit()?;
         Ok(total_deleted)
     }
-
 }
 
 pub fn default_db_path() -> Result<PathBuf> {
