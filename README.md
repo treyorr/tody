@@ -2,115 +2,60 @@
 
 > **tiny tidy todos = tody**
 
-A fast, single-binary task manager that lives in your terminal. Keep global todos alongside project-local ones — tody knows where you are.
+Path-aware terminal task manager for global and project-local todos.
 
-- **Path-aware** — tasks can be scoped to a project (git root) so they only appear when you're there
-- **Zero config** — works out of the box, stores everything in a local SQLite database
-- **Interactive** — run `tody` with no arguments for a fuzzy picker
-- **Portable** — single static binary, no runtime dependencies
-
-## Install
-
-### Homebrew (macOS / Linux)
+## Install and run
 
 ```sh
-brew install treyorr/tap/tody     # coming soon
+curl -fsSL https://tlo3.com/tody-install.sh | sh
+tody --version
 ```
 
-### Pre-built binaries
-
-Grab the latest release for your platform from [**Releases**](https://github.com/treyorr/tody/releases) and place it somewhere on your `PATH`.
-
-### From source
-
-Requires [Rust](https://rustup.rs/) 1.85+:
+If `tody` is not found, add this and restart your shell:
 
 ```sh
-cargo install --git https://github.com/treyorr/tody.git
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Or clone and build locally:
+Start using it:
 
 ```sh
-git clone https://github.com/treyorr/tody.git
-cd tody
-cargo install --path .
+tody add "Buy groceries"         # global task
+tody add "Fix login bug" --local # task scoped to this project
+tody                              # interactive picker
+tody list                         # print pending tasks
 ```
 
-## Quick start
-
-```sh
-tody add "Buy groceries"              # add a global task
-tody add "Fix login bug" --local      # add a task scoped to this project
-tody                                  # interactive picker — select a task to complete
-tody list                             # view pending tasks
-```
-
-## Commands
+## Most-used commands
 
 | Command | Description |
 |---------|-------------|
-| `tody` | Interactive picker — select a task to mark done |
-| `tody add <title>` | Add a task (`-l` / `--local` to scope to current project) |
-| `tody list` | Show tasks (`-g` global, `-l` local, `-a` include completed) |
-| `tody done <id>` | Mark a task as completed |
-| `tody rm <id>` | Delete a task (with confirmation) |
+| `tody` | Interactive picker to mark a task done |
+| `tody add <title>` | Add a task (`-l` / `--local` for project scope) |
+| `tody list` | List tasks (`-g`, `-l`, `-a`) |
+| `tody done <id>` | Mark task as completed |
+| `tody rm <id>` | Delete task (with confirmation) |
 | `tody log` | Show recently completed tasks |
-| `tody prune` | Find & remove tasks for deleted project folders |
-| `tody config set <key> <value>` | Set a config value |
-| `tody config get <key>` | Read a config value |
+| `tody prune` | Remove tasks tied to deleted folders |
 | `tody update` | Self-update from GitHub releases |
-| `tody uninstall` | Remove database, config, and binary |
 
-### Adding tasks
+## What it does
 
-```sh
-tody add "Review PR #42"              # global — shows up everywhere
-tody add "Write migration" --local    # local — tied to current project root
-```
+- **Path-aware**: Local tasks are tied to your current project root.
+- **Zero config**: Works immediately with a local SQLite database.
+- **Single binary**: No runtime dependencies.
+- **Fast CLI flow**: Interactive picker plus explicit commands.
 
-### Listing tasks
+## Scope model
 
-```sh
-tody list                # default view (merged)
-tody list --local        # only tasks for this project
-tody list --global       # only global tasks
-tody list --all          # include completed tasks
-```
+Every task is either:
 
-### Completing & removing
-
-```sh
-tody done 3              # mark task #3 as completed
-tody rm 7                # permanently delete task #7
-```
-
-### Activity log
-
-```sh
-tody log                 # recently completed tasks with relative timestamps
-```
-
-### Pruning orphans
-
-```sh
-tody prune               # detect project folders that no longer exist, clean up
-```
-
-## How scoping works
-
-Every task is either **global** or **local**:
-
-| Scope | Behavior |
-|-------|----------|
-| **Global** | No folder association — visible everywhere |
-| **Local** | Tied to a project path (nearest git root, or `cwd` as fallback) |
-
-The interactive picker and `list` command respect your `default_view` config, so you can choose to see only local tasks, only global, or both.
+- **Global**: visible from any folder.
+- **Local**: tied to a project path (nearest git root, or `cwd` fallback).
 
 ## Configuration
 
-Config lives at `~/.config/tody/config.toml` (macOS/Linux):
+Config file (macOS/Linux): `~/.config/tody/config.toml`
 
 ```toml
 default_view = "merged"          # merged | local | global
@@ -130,41 +75,61 @@ tody config get color_local
 | Database | `~/Library/Application Support/tody/tody.db` |
 | Config | `~/.config/tody/config.toml` |
 
-Paths are resolved via [`dirs`](https://docs.rs/dirs) so they follow platform conventions on Linux and Windows too.
+Paths are resolved via [`dirs`](https://docs.rs/dirs), so Linux and Windows use their platform conventions too.
 
-## Development
+## Other install options
 
-Requires [mise](https://mise.jdx.dev/) (or Rust 1.85+ installed manually).
+Install a specific release:
+
+```sh
+curl -fsSL https://tlo3.com/tody-install.sh | TODY_VERSION=2026.2.1 sh
+```
+
+Install to a custom location:
+
+```sh
+curl -fsSL https://tlo3.com/tody-install.sh | BINDIR=/usr/local/bin sh
+```
+
+Install directly from source (Rust 1.85+):
+
+```sh
+cargo install --git https://github.com/treyorr/tody.git
+```
+
+Or build from a clone:
 
 ```sh
 git clone https://github.com/treyorr/tody.git
 cd tody
-mise install              # install toolchain
-mise run ci               # fmt-check → check → clippy → test
+cargo install --path .
 ```
 
-Individual tasks:
+## Development
+
+Requires [mise](https://mise.jdx.dev/) or Rust 1.85+.
 
 ```sh
-mise run fmt              # format code
-mise run lint             # clippy with -D warnings
-mise run test             # run unit tests
-cargo run -- add "test"   # run locally
+git clone https://github.com/treyorr/tody.git
+cd tody
+mise install
+mise run ci
+```
+
+```sh
+mise run fmt
+mise run lint
+mise run test
+cargo run -- add "test"
 ```
 
 ## Versioning
 
-tody uses [CalVer](https://calver.org/) — **`YYYY.MM.COUNTER`**
-
-- `YYYY` — full year
-- `MM` — month (no zero-padding)
-- `COUNTER` — release number within that month, starting at 1
-
-Example: `2026.2.1` is the first release of February 2026.
+tody uses [CalVer](https://calver.org/): `YYYY.MM.COUNTER`.
 
 ## Contributing
 
-Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
