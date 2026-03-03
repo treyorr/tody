@@ -15,3 +15,8 @@
 .env
 
 RELEASE.txt
+
+# Local demo generation assets
+scripts/demo.sh
+scripts/demo.tape
+demo.mp4

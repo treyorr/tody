@@ -66,7 +66,7 @@ echo "-> installing tody ${tag} for ${target}"
 echo "-> download: ${url}"
 
 mkdir -p "${BINDIR}"
-curl -fL "${url}" -o "${tmpdir}/${asset}"
+curl -fsSL "${url}" -o "${tmpdir}/${asset}"
 tar -xzf "${tmpdir}/${asset}" -C "${tmpdir}"
 
 if [ ! -f "${tmpdir}/tody" ]; then

@@ -4,6 +4,8 @@
 
 Path-aware terminal task manager for global and project-local todos.
 
+![tody demo](demo.gif)
+
 ## Install and run
 
 ```sh
