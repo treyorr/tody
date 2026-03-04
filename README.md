@@ -22,45 +22,67 @@ export PATH="$HOME/.local/bin:$PATH"
 Start using it:
 
 ```sh
-tody add "Buy groceries"         # global task
-tody add "Fix login bug" --local # task scoped to this project
-tody                              # interactive picker
-tody list                         # print pending tasks
+tody add "Buy groceries"           # global task (when not in a project)
+cd ~/projects/my-app
+tody add "Fix login bug"            # auto-detected as local (you're in a git repo)
+tody add "Read docs" --global       # explicitly global, even inside a project
+tody                                 # interactive picker scoped to current project
+tody list                            # pending tasks for current project
+tody list --global                   # pending global tasks only
+tody list --all                      # everything across all projects
+tody list --done                     # completed tasks
 ```
 
-## Most-used commands
+## Command quick guide
 
-| Command | Description |
-|---------|-------------|
-| `tody` | Interactive picker to mark a task done |
-| `tody add <title>` | Add a task (`-l` / `--local` for project scope) |
-| `tody list` | List tasks (`-g`, `-l`, `-a`) |
-| `tody done <id>` | Mark task as completed |
-| `tody rm <id>` | Delete task (with confirmation) |
-| `tody log` | Show recently completed tasks |
-| `tody prune` | Remove tasks tied to deleted folders |
-| `tody update` | Self-update from GitHub releases |
+| If you want to... | Run | Result |
+|-------------------|-----|--------|
+| complete a task from a picker | `tody` | interactive prompt scoped to current project |
+| add a task (auto-scoped) | `tody add "Title"` | local when in a git repo, global otherwise |
+| add an explicitly global task | `tody add "Title" -g` | task is visible everywhere |
+| add an explicitly local task | `tody add "Title" -l` | task is tied to the current project |
+| see this project's tasks | `tody list` | local tasks for the current project only |
+| see global tasks | `tody list -g` | global tasks only |
+| see everything | `tody list -a` | all tasks across all projects |
+| see completed tasks here | `tody list -d` | completed tasks scoped to current context |
+| see all completed tasks | `tody list -a -d` | all completed tasks across projects |
+| mark a task completed by id | `tody done <id>` | marks one task as done |
+| edit a task's title | `tody edit <id> "New title"` | updates the task title |
+| undo the last completion | `tody undo` | restores the last completed task to pending |
+| permanently delete a task | `tody rm <id>` | removes one task after confirmation |
+
+Other useful commands:
+
+- `tody log`: recently completed activity (project-scoped by default)
+- `tody log --all`: completed activity across all projects
+- `tody prune`: remove tasks tied to deleted folders
+- `tody update`: self-update from GitHub releases
 
 ## What it does
 
-- **Path-aware**: Local tasks are tied to your current project root.
+- **Project-scoped by default**: Inside a git repo, tasks are automatically local to that project.
+- **Smart auto-detection**: No flags needed — `tody add` and `tody list` just work in context.
 - **Zero config**: Works immediately with a local SQLite database.
 - **Single binary**: No runtime dependencies.
 - **Fast CLI flow**: Interactive picker plus explicit commands.
+- **Developer-friendly**: `edit`, `undo`, project-scoped `log`.
 
 ## Scope model
 
 Every task is either:
 
-- **Global**: visible from any folder.
-- **Local**: tied to a project path (nearest git root, or `cwd` fallback).
+- **Global**: visible from any folder. Created with `-g` flag, or auto-detected outside a git repo.
+- **Local**: tied to a project path (nearest git root). Auto-detected when inside a git repo.
+
+When you `cd` into a project and run `tody`, you only see that project's tasks.
+Use `tody list -g` for global tasks, or `tody list -a` to see everything.
 
 ## Configuration
 
 Config file (macOS/Linux): `~/.config/tody/config.toml`
 
 ```toml
-default_view = "merged"          # merged | local | global
+default_view = "auto"            # auto | merged | local | global
 color_local = "bright_magenta"   # ANSI color name
 color_global = "bright_cyan"     # ANSI color name
 ```

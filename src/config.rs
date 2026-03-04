@@ -11,7 +11,9 @@ const CONFIG_FILENAME: &str = "config.toml";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DefaultView {
+    /// Auto-detect: project-local when in a git repo, global otherwise
     #[default]
+    Auto,
     Merged,
     Local,
     Global,
@@ -20,6 +22,7 @@ pub enum DefaultView {
 impl Display for DefaultView {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Auto => write!(f, "auto"),
             Self::Merged => write!(f, "merged"),
             Self::Local => write!(f, "local"),
             Self::Global => write!(f, "global"),
@@ -32,10 +35,11 @@ impl FromStr for DefaultView {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value.trim().to_ascii_lowercase().as_str() {
+            "auto" => Ok(Self::Auto),
             "merged" => Ok(Self::Merged),
             "local" => Ok(Self::Local),
             "global" => Ok(Self::Global),
-            _ => bail!("invalid default_view '{value}', expected merged|local|global"),
+            _ => bail!("invalid default_view '{value}', expected auto|merged|local|global"),
         }
     }
 }
@@ -53,7 +57,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            default_view: DefaultView::Merged,
+            default_view: DefaultView::Auto,
             color_local: default_color_local(),
             color_global: default_color_global(),
         }
@@ -134,6 +138,7 @@ mod tests {
 
     #[test]
     fn parses_default_view_values() -> Result<()> {
+        assert_eq!("auto".parse::<DefaultView>()?, DefaultView::Auto);
         assert_eq!("merged".parse::<DefaultView>()?, DefaultView::Merged);
         assert_eq!("local".parse::<DefaultView>()?, DefaultView::Local);
         assert_eq!("global".parse::<DefaultView>()?, DefaultView::Global);
@@ -168,7 +173,7 @@ mod tests {
     #[test]
     fn default_config_values() {
         let cfg = AppConfig::default();
-        assert_eq!(cfg.default_view, DefaultView::Merged);
+        assert_eq!(cfg.default_view, DefaultView::Auto);
         assert_eq!(cfg.color_local, "bright_magenta");
         assert_eq!(cfg.color_global, "bright_cyan");
     }

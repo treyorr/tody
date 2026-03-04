@@ -48,22 +48,32 @@ pub struct Task {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScopeFilter {
-    Merged,
+    MergedCurrent,
+    MergedAll,
     GlobalOnly,
-    LocalOnly,
+    LocalCurrent,
+    LocalAll,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusFilter {
+    PendingOnly,
+    CompletedOnly,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListFilter {
     pub scope: ScopeFilter,
-    pub include_completed: bool,
+    pub status: StatusFilter,
+    pub current_local_folder: Option<String>,
 }
 
 impl Default for ListFilter {
     fn default() -> Self {
         Self {
-            scope: ScopeFilter::Merged,
-            include_completed: false,
+            scope: ScopeFilter::MergedCurrent,
+            status: StatusFilter::PendingOnly,
+            current_local_folder: None,
         }
     }
 }
@@ -167,25 +177,89 @@ impl Database {
         Ok(())
     }
 
+    pub fn edit_task(&self, id: i64, title: &str) -> Result<()> {
+        let trimmed = title.trim();
+        if trimmed.is_empty() {
+            bail!("task title cannot be empty");
+        }
+        let changed = self.conn.execute(
+            "UPDATE tasks SET title = ?2 WHERE id = ?1",
+            params![id, trimmed],
+        )?;
+        if changed == 0 {
+            bail!("task {id} does not exist");
+        }
+        Ok(())
+    }
+
+    pub fn undo_last_completed(&self) -> Result<Task> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT id, title, status, folder_path, created_at, completed_at
+            FROM tasks
+            WHERE status = 'completed'
+            ORDER BY completed_at DESC
+            LIMIT 1
+            "#,
+        )?;
+
+        let task = stmt
+            .query_row([], |row| {
+                let folder_path: Option<String> = row.get(3)?;
+                Ok(Task {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    status: TaskStatus::Completed,
+                    folder_path: folder_path.map(PathBuf::from),
+                    created_at: row.get(4)?,
+                    completed_at: row.get(5)?,
+                })
+            })
+            .map_err(|_| anyhow!("no completed tasks to undo"))?;
+
+        self.conn.execute(
+            "UPDATE tasks SET status = 'pending', completed_at = NULL WHERE id = ?1",
+            params![task.id],
+        )?;
+
+        Ok(task)
+    }
+
     pub fn list_tasks(&self, filter: ListFilter) -> Result<Vec<Task>> {
         let mut sql = String::from(
             "SELECT id, title, status, folder_path, created_at, completed_at FROM tasks WHERE 1 = 1",
         );
 
-        if !filter.include_completed {
-            sql.push_str(" AND status = 'pending'");
+        match filter.status {
+            StatusFilter::PendingOnly => sql.push_str(" AND status = 'pending'"),
+            StatusFilter::CompletedOnly => sql.push_str(" AND status = 'completed'"),
         }
 
+        let mut local_param: Option<String> = None;
         match filter.scope {
-            ScopeFilter::Merged => {}
+            ScopeFilter::MergedCurrent => {
+                let current = filter.current_local_folder.as_deref().ok_or_else(|| {
+                    anyhow!("current_local_folder is required for merged current scope")
+                })?;
+                sql.push_str(" AND (folder_path IS NULL OR folder_path = ?1)");
+                local_param = Some(current.to_string());
+            }
+            ScopeFilter::MergedAll => {}
             ScopeFilter::GlobalOnly => sql.push_str(" AND folder_path IS NULL"),
-            ScopeFilter::LocalOnly => sql.push_str(" AND folder_path IS NOT NULL"),
+            ScopeFilter::LocalCurrent => {
+                let current = filter.current_local_folder.as_deref().ok_or_else(|| {
+                    anyhow!("current_local_folder is required for local current scope")
+                })?;
+                sql.push_str(" AND folder_path = ?1");
+                local_param = Some(current.to_string());
+            }
+            ScopeFilter::LocalAll => sql.push_str(" AND folder_path IS NOT NULL"),
         }
 
         sql.push_str(" ORDER BY created_at DESC, id DESC");
 
         let mut stmt = self.conn.prepare(&sql)?;
-        let mapped = stmt.query_map([], |row| {
+        let mut map_row = |row: &rusqlite::Row<'_>| {
             let status_raw: String = row.get(2)?;
             let status = match status_raw.as_str() {
                 "pending" => TaskStatus::Pending,
@@ -211,27 +285,41 @@ impl Database {
                 created_at: row.get(4)?,
                 completed_at: row.get(5)?,
             })
-        })?;
+        };
+        let mapped = match local_param {
+            Some(local) => stmt.query_map(params![local], &mut map_row)?,
+            None => stmt.query_map([], &mut map_row)?,
+        };
 
         mapped
             .collect::<rusqlite::Result<Vec<_>>>()
             .map_err(Into::into)
     }
 
-    pub fn recent_completed(&self, limit: usize) -> Result<Vec<Task>> {
+    pub fn recent_completed(&self, limit: usize, folder_filter: Option<&str>) -> Result<Vec<Task>> {
         let limit_i64 =
             i64::try_from(limit.max(1)).map_err(|_| anyhow!("limit value is too large"))?;
-        let mut stmt = self.conn.prepare(
-            r#"
-            SELECT id, title, status, folder_path, created_at, completed_at
-            FROM tasks
-            WHERE status = 'completed'
-            ORDER BY completed_at DESC, id DESC
-            LIMIT ?1
-            "#,
-        )?;
 
-        let mapped = stmt.query_map(params![limit_i64], |row| {
+        let sql = match folder_filter {
+            Some(_) => r#"
+                SELECT id, title, status, folder_path, created_at, completed_at
+                FROM tasks
+                WHERE status = 'completed' AND folder_path = ?2
+                ORDER BY completed_at DESC, id DESC
+                LIMIT ?1
+            "#,
+            None => r#"
+                SELECT id, title, status, folder_path, created_at, completed_at
+                FROM tasks
+                WHERE status = 'completed'
+                ORDER BY completed_at DESC, id DESC
+                LIMIT ?1
+            "#,
+        };
+
+        let mut stmt = self.conn.prepare(sql)?;
+
+        let map_row = |row: &rusqlite::Row<'_>| {
             let folder_path: Option<String> = row.get(3)?;
             Ok(Task {
                 id: row.get(0)?,
@@ -241,7 +329,12 @@ impl Database {
                 created_at: row.get(4)?,
                 completed_at: row.get(5)?,
             })
-        })?;
+        };
+
+        let mapped = match folder_filter {
+            Some(folder) => stmt.query_map(params![limit_i64, folder], map_row)?,
+            None => stmt.query_map(params![limit_i64], map_row)?,
+        };
 
         mapped
             .collect::<rusqlite::Result<Vec<_>>>()
@@ -318,6 +411,35 @@ pub fn resolve_local_folder_path() -> Result<PathBuf> {
     normalize_path(candidate)
 }
 
+/// Returns `Some(path)` when the current directory is inside a git repository,
+/// `None` otherwise. Used for smart project-scope auto-detection.
+pub fn try_resolve_project_path() -> Option<PathBuf> {
+    let current_dir = std::env::current_dir().ok()?;
+    let output = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(&current_dir)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let raw = String::from_utf8(output.stdout).ok()?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let path = PathBuf::from(trimmed);
+    path.canonicalize().ok().or(Some(path))
+}
+
+/// Extract a short project name from a path (last path component).
+pub fn project_name(path: &Path) -> String {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("project")
+        .to_string()
+}
+
 fn normalize_folder_path(path: &Path) -> Result<String> {
     normalize_path(path.to_path_buf()).map(|p| p.to_string_lossy().to_string())
 }
@@ -356,7 +478,7 @@ mod tests {
         let id = db.add_task("write tests", None)?;
         db.mark_done(id)?;
 
-        let completed = db.recent_completed(10)?;
+        let completed = db.recent_completed(10, None)?;
         assert_eq!(completed.len(), 1);
         assert_eq!(completed[0].title, "write tests");
         assert_eq!(completed[0].status, TaskStatus::Completed);
@@ -371,7 +493,11 @@ mod tests {
         let id = db.add_task("temporary task", None)?;
         db.remove_task(id)?;
 
-        let tasks = db.list_tasks(ListFilter::default())?;
+        let tasks = db.list_tasks(ListFilter {
+            scope: ScopeFilter::MergedCurrent,
+            status: StatusFilter::PendingOnly,
+            current_local_folder: Some(tmp.path().to_string_lossy().to_string()),
+        })?;
         assert!(tasks.iter().all(|t| t.id != id));
         Ok(())
     }
@@ -430,25 +556,79 @@ mod tests {
         let db = Database::open_at(tmp.path().join("tody.db"))?;
 
         db.add_task("global one", None)?;
-        // Use tmp as a local path (it exists)
-        db.add_task("local one", Some(tmp.path()))?;
+        let current_project = tmp.path().join("project_a");
+        let other_project = tmp.path().join("project_b");
+        std::fs::create_dir_all(&current_project)?;
+        std::fs::create_dir_all(&other_project)?;
+        db.add_task("local current", Some(current_project.as_path()))?;
+        db.add_task("local other", Some(other_project.as_path()))?;
+        let current_project_text = current_project
+            .canonicalize()?
+            .to_string_lossy()
+            .to_string();
 
         let global_only = db.list_tasks(ListFilter {
             scope: ScopeFilter::GlobalOnly,
-            include_completed: false,
+            status: StatusFilter::PendingOnly,
+            current_local_folder: None,
         })?;
         assert!(global_only.iter().all(|t| t.folder_path.is_none()));
         assert_eq!(global_only.len(), 1);
 
-        let local_only = db.list_tasks(ListFilter {
-            scope: ScopeFilter::LocalOnly,
-            include_completed: false,
+        let local_current = db.list_tasks(ListFilter {
+            scope: ScopeFilter::LocalCurrent,
+            status: StatusFilter::PendingOnly,
+            current_local_folder: Some(current_project_text.clone()),
         })?;
-        assert!(local_only.iter().all(|t| t.folder_path.is_some()));
-        assert_eq!(local_only.len(), 1);
+        assert!(local_current.iter().all(|t| t.folder_path.is_some()));
+        assert_eq!(local_current.len(), 1);
+        assert_eq!(local_current[0].title, "local current");
 
-        let merged = db.list_tasks(ListFilter::default())?;
-        assert_eq!(merged.len(), 2);
+        let merged_current = db.list_tasks(ListFilter {
+            scope: ScopeFilter::MergedCurrent,
+            status: StatusFilter::PendingOnly,
+            current_local_folder: Some(current_project_text),
+        })?;
+        assert_eq!(merged_current.len(), 2);
+        assert!(merged_current.iter().any(|t| t.title == "global one"));
+        assert!(merged_current.iter().any(|t| t.title == "local current"));
+
+        let merged_all = db.list_tasks(ListFilter {
+            scope: ScopeFilter::MergedAll,
+            status: StatusFilter::PendingOnly,
+            current_local_folder: None,
+        })?;
+        assert_eq!(merged_all.len(), 3);
+
+        Ok(())
+    }
+
+    #[test]
+    fn list_filter_statuses_work() -> Result<()> {
+        let tmp = tempdir()?;
+        let db = Database::open_at(tmp.path().join("tody.db"))?;
+
+        let project = tmp.path().join("project_a");
+        std::fs::create_dir_all(&project)?;
+        db.add_task("pending global", None)?;
+        let done_id = db.add_task("done local", Some(project.as_path()))?;
+        db.mark_done(done_id)?;
+
+        let pending = db.list_tasks(ListFilter {
+            scope: ScopeFilter::MergedAll,
+            status: StatusFilter::PendingOnly,
+            current_local_folder: None,
+        })?;
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].title, "pending global");
+
+        let completed = db.list_tasks(ListFilter {
+            scope: ScopeFilter::MergedAll,
+            status: StatusFilter::CompletedOnly,
+            current_local_folder: None,
+        })?;
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].title, "done local");
 
         Ok(())
     }
