@@ -301,20 +301,24 @@ impl Database {
             i64::try_from(limit.max(1)).map_err(|_| anyhow!("limit value is too large"))?;
 
         let sql = match folder_filter {
-            Some(_) => r#"
+            Some(_) => {
+                r#"
                 SELECT id, title, status, folder_path, created_at, completed_at
                 FROM tasks
                 WHERE status = 'completed' AND folder_path = ?2
                 ORDER BY completed_at DESC, id DESC
                 LIMIT ?1
-            "#,
-            None => r#"
+            "#
+            }
+            None => {
+                r#"
                 SELECT id, title, status, folder_path, created_at, completed_at
                 FROM tasks
                 WHERE status = 'completed'
                 ORDER BY completed_at DESC, id DESC
                 LIMIT ?1
-            "#,
+            "#
+            }
         };
 
         let mut stmt = self.conn.prepare(sql)?;

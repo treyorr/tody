@@ -2,7 +2,9 @@ use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 use demand::DemandOption;
 use tody::config::{AppConfig, DefaultView};
-use tody::db::{Database, ListFilter, ScopeFilter, StatusFilter, project_name, try_resolve_project_path};
+use tody::db::{
+    Database, ListFilter, ScopeFilter, StatusFilter, project_name, try_resolve_project_path,
+};
 use tody::ui;
 
 #[derive(Parser)]
@@ -329,18 +331,14 @@ fn cmd_list(global: bool, local: bool, all: bool, done: bool) -> Result<()> {
     })?;
 
     let header = match scope {
-        ScopeFilter::LocalCurrent => {
-            project_folder
-                .as_deref()
-                .map(|p| project_name(std::path::Path::new(p)))
-                .unwrap_or_else(|| "Tasks".into())
-        }
-        ScopeFilter::MergedCurrent => {
-            project_folder
-                .as_deref()
-                .map(|p| format!("{} + Global", project_name(std::path::Path::new(p))))
-                .unwrap_or_else(|| "Tasks".into())
-        }
+        ScopeFilter::LocalCurrent => project_folder
+            .as_deref()
+            .map(|p| project_name(std::path::Path::new(p)))
+            .unwrap_or_else(|| "Tasks".into()),
+        ScopeFilter::MergedCurrent => project_folder
+            .as_deref()
+            .map(|p| format!("{} + Global", project_name(std::path::Path::new(p))))
+            .unwrap_or_else(|| "Tasks".into()),
         ScopeFilter::GlobalOnly => "Global Tasks".into(),
         ScopeFilter::MergedAll => "All Tasks".into(),
         ScopeFilter::LocalAll => "All Project Tasks".into(),
